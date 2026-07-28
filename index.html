@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Walkie Talkie</title>
+    <!-- We laden PeerJS in voor de directe verbinding tussen apparaten -->
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            text-align: center;
+            background-color: #222;
+            color: white;
+            padding: 20px;
+        }
+        .btn {
+            background-color: #ff5722;
+            color: white;
+            border: none;
+            padding: 20px 40px;
+            font-size: 20px;
+            border-radius: 50px;
+            cursor: pointer;
+            margin: 20px 0;
+            user-select: none;
+            touch-action: manipulation;
+        }
+        .btn:active {
+            background-color: #e64a19;
+        }
+        input {
+            padding: 10px;
+            font-size: 16px;
+            border-radius: 5px;
+            border: none;
+            margin: 5px;
+        }
+        #status {
+            margin-top: 20px;
+            color: #bbb;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>🎙️ Web Walkie-Talkie</h1>
+    
+    <div>
+        <p>Jouw ID: <strong id="my-id">Laden...</strong></p>
+    </div>
+
+    <hr style="border-color: #444;">
+
+    <div>
+        <h3>Verbinden met een vriend</h3>
+        <input type="text" id="peer-id-input" placeholder="Vul ID van vriend in">
+        <button onclick="connectToPeer()" style="padding: 10px 20px; border-radius: 5px; border: none; background: #4caf50; color: white; font-size: 16px;">Verbind</button>
+    </div>
+
+    <!-- De Push-to-Talk knop -->
+    <button id="talk-btn" class="btn" disabled>Houd ingedrukt om te praten</button>
+
+    <div id="status">Status: Wachten op PeerJS server...</div>
+
+    <script>
+        const peer = new Peer(); // Maakt automatisch een uniek ID aan via de PeerJS server
+        let currentCall = null;
+        let localStream = null;
+        let conn = null;
+
+        const talkBtn = document.getElementById('talk-btn');
+        const statusDiv = document.getElementById('status');
+
+        // 1. Zodra je eigen ID is gegenereerd
+        peer.on('open', (id) => {
+            document.getElementById('my-id').innerText = id;
+            statusDiv.innerText = "Status: Klaar voor verbinding. Deel je ID!";
+        });
+
+        // 2. Vraag toegang tot de microfoon zodra de pagina laadt
+        navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+            .then(stream => {
+                localStream = stream;
+                // Mute de microfoon standaard (Walkie-Talkie modus)
+                setMicrophoneMute(true);
+            })
+            .catch(err => {
+                statusDiv.innerText = "Status: Microfoon toegang geweigerd! " + err;
+            });
+
+        // 3. Als iemand jou belt (inkomende verbinding)
+        peer.on('call', (call) => {
+            currentCall = call;
+            // Beantwoord de oproep met jouw (nog gedempte) microfoonsignaal
+            call.answer(localStream);
+            
+            call.on('stream', (remoteStream) => {
+                playRemoteStream(remoteStream);
+                statusDiv.innerText = "Status: Verbonden! Je kunt nu praten.";
+                talkBtn.disabled = false;
+            });
+        });
+
+        // Ook luisteren naar text-data om de knoppen synchroon te houden
+        peer.on('connection', (c) => {
+            conn = c;
+            setupDataConnection();
+        });
+
+        // 4. Handmatig verbinden met de ander
+        function connectToPeer() {
+            const peerId = document.getElementById('peer-id-input').value;
+            if (!peerId) return alert("Vul eerst een ID in!");
+
+            statusDiv.innerText = "Verbinden...";
+            
+            // Start data en audio verbinding
+            conn = peer.connect(peerId);
+            setupDataConnection();
+
+            const call = peer.call(peerId, localStream);
+            currentCall = call;
+
+            call.on('stream', (remoteStream) => {
+                playRemoteStream(remoteStream);
+                statusDiv.innerText = "Status: Verbonden! Je kunt nu praten.";
+                talkBtn.disabled = false;
+            });
+        }
+
+        function setupDataConnection() {
+            conn.on('open', () => {
+                statusDiv.innerText = "Status: Verbonden! Je kunt nu praten.";
+                talkBtn.disabled = false;
+            });
+        }
+
+        // 5. Audio afspelen van de ander
+        function playRemoteStream(remoteStream) {
+            // Check of er al een audio-element is, zo niet maak er een
+            let audio = document.getElementById('remote-audio');
+            if (!audio) {
+                audio = document.createElement('audio');
+                audio.id = 'remote-audio';
+                audio.autoplay = true;
+                document.body.appendChild(audio);
+            }
+            audio.srcObject = remoteStream;
+        }
+
+        // Helper om microfoon te muten/unmuten
+        function setMicrophoneMute(isMuted) {
+            if (localStream) {
+                localStream.getAudioTracks().forEach(track => {
+                    track.enabled = !isMuted;
+                });
+            }
+        }
+
+        // 6. Push-to-Talk Logica (Muis en Touch voor mobiel)
+        function startTalking() {
+            if (!talkBtn.disabled) {
+                setMicrophoneMute(false);
+                talkBtn.innerText = "🔊 JE SPREEKT NU...";
+                talkBtn.style.backgroundColor = "#4caf50";
+            }
+        }
+
+        function stopTalking() {
+            setMicrophoneMute(true);
+            talkBtn.innerText = "Houd ingedrukt om te praten";
+            talkBtn.style.backgroundColor = "#ff5722";
+        }
+
+        // Events voor computers (muis)
+        talkBtn.addEventListener('mousedown', startTalking);
+        talkBtn.addEventListener('mouseup', stopTalking);
+        talkBtn.addEventListener('mouseleave', stopTalking);
+
+        // Events voor telefoons (touch)
+        talkBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            startTalking();
+        });
+        talkBtn.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            stopTalking();
+        });
+    </script>
+</body>
+</html>
