@@ -35,7 +35,7 @@
 </head>
 <body class="h-full flex items-center justify-center p-2 sm:p-4">
 
-    <!-- Audio Container (één per verbonden peer) -->
+    <!-- Audio container: 1 <audio> per verbonden peer -->
     <div id="audio-container"></div>
 
     <div class="w-full max-w-md bg-gray-900 border-2 border-gray-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[95vh] max-h-[850px] relative">
@@ -46,7 +46,7 @@
                 <div id="status-led" class="w-3.5 h-3.5 rounded-full led-amber"></div>
                 <span id="header-status" class="text-xs font-mono-tech text-gray-400 uppercase">Standby</span>
             </div>
-            <span class="text-xs text-orange-500 font-mono-tech uppercase font-bold">TAC-RADIO v3.0</span>
+            <span class="text-xs text-orange-500 font-mono-tech uppercase font-bold">TAC-RADIO v4.0</span>
         </div>
 
         <!-- Login Scherm -->
@@ -65,10 +65,7 @@
                     <div>
                         <label class="block text-xs font-mono-tech text-orange-400 uppercase mb-1">Kanaal</label>
                         <select id="channel-select" class="w-full p-3 bg-gray-950 border border-gray-700 rounded-xl text-white font-mono-tech focus:outline-none focus:border-orange-500">
-                            <option value="1100">Kanaal 1100 [Alpha]</option>
-                            <option value="1101">Kanaal 1101 [Bravo]</option>
-                            <option value="1102">Kanaal 1102 [Charlie]</option>
-                            <option value="1103">Kanaal 1103 [Delta]</option>
+                            <!-- Wordt via JS gevuld: 1100 t/m 1115 -->
                         </select>
                     </div>
                 </div>
@@ -102,19 +99,21 @@
                         <div id="disp-peers" class="font-mono-tech text-lg font-bold text-emerald-300">0</div>
                     </div>
                     <div class="bg-emerald-950/60 rounded-lg p-2 border border-emerald-800/40">
-                        <span class="text-[10px] font-mono-tech text-emerald-600 uppercase block">Netwerk</span>
-                        <div id="disp-network" class="font-mono-tech text-lg font-bold text-emerald-300">MESH</div>
+                        <span class="text-[10px] font-mono-tech text-emerald-600 uppercase block">Rol</span>
+                        <div id="disp-role" class="font-mono-tech text-lg font-bold text-emerald-300">--</div>
                     </div>
                 </div>
+
+                <div id="disp-peer-list" class="mt-2 text-[10px] font-mono-tech text-emerald-500 text-center leading-tight"></div>
             </div>
 
             <!-- Radio Log -->
-            <div id="radio-log" class="text-xs font-mono-tech text-emerald-400 my-4 text-center bg-gray-950 p-3 rounded-lg border border-gray-800 min-h-[60px] flex items-center justify-center">
-                Kanaal geopend. Wachten op andere deelnemers...
+            <div id="radio-log" class="text-xs font-mono-tech text-emerald-400 my-3 text-center bg-gray-950 p-3 rounded-lg border border-gray-800 min-h-[50px] flex items-center justify-center">
+                Kanaal wordt geopend...
             </div>
 
             <!-- Push-To-Talk Knop -->
-            <div class="bg-gray-950 border border-gray-800 rounded-2xl p-6 flex flex-col items-center justify-center">
+            <div class="bg-gray-950 border border-gray-800 rounded-2xl p-4 flex flex-col items-center justify-center">
                 <button id="ptt-btn" disabled class="btn-ptt w-36 h-36 rounded-full flex flex-col items-center justify-center text-white cursor-pointer select-none border-4 border-gray-900 opacity-50">
                     <i id="ptt-icon" class="fa-solid fa-microphone text-4xl mb-1"></i>
                     <span id="ptt-label" class="font-black text-xs uppercase tracking-widest">Houd in</span>
@@ -126,19 +125,32 @@
 
     <script>
         // ============================================================
-        //  MESH WALKIE-TALKIE
-        //  Iedereen op hetzelfde kanaal verbindt automatisch met elkaar.
-        //  PTT → microfoon aan → iedereen hoort je.
+        //  MESH WALKIE-TALKIE met vaste host per kanaal
         // ============================================================
+
+        // Kanaalnummers 1100 t/m 1115
+        const CHANNELS = [];
+        for (let i = 1100; i <= 1115; i++) CHANNELS.push(i);
+
+        const HOST_PREFIX = "tacradio-host-";   // vaste host per kanaal
+        const PEER_PREFIX = "tacradio-peer-";   // unieke peer-ID per gebruiker
 
         let peer = null;
         let localStream = null;
         let myName = '';
         let myChannel = '';
         let myPeerId = '';
+        let isHost = false;
+        let hostConn = null;       // dataconnectie naar de host (als we geen host zijn)
+        let hostCall = null;       // audiocall naar de host (als we geen host zijn)
 
-        // Actieve verbindingen: { peerId: { call, audioEl } }
+        // Actieve verbindingen: { peerId: { call, audioEl, name } }
         const connections = {};
+
+        // Host-administratie
+        let hostDataConns = {};    // { peerId: dataConn }
+        let hostCallConns = {};    // { peerId: mediaCall }
+        let hostPeers = {};        // { peerId: { name, call, audioEl } }
 
         const pttBtn = document.getElementById('ptt-btn');
         const pttIcon = document.getElementById('ptt-icon');
@@ -146,35 +158,44 @@
         const radioLog = document.getElementById('radio-log');
         const audioContainer = document.getElementById('audio-container');
 
+        // ---------- Kanaal-dropdown vullen ----------
+        (function fillChannels() {
+            const sel = document.getElementById('channel-select');
+            CHANNELS.forEach(ch => {
+                const opt = document.createElement('option');
+                opt.value = ch;
+                opt.textContent = "Kanaal " + ch;
+                sel.appendChild(opt);
+            });
+        })();
+
         // ---------- LOGIN ----------
         async function login() {
             myName = document.getElementById('name-input').value.trim();
             myChannel = document.getElementById('channel-select').value;
 
             if (!myName) return alert("Vul a.u.b. een roepnaam in.");
+            if (!myChannel) return alert("Kies een kanaal.");
+
+            document.getElementById('login-feedback').innerText = "Microfoon aanvragen...";
 
             try {
-                // Microfoon aanvragen
                 localStream = await navigator.mediaDevices.getUserMedia({
                     audio: { echoCancellation: true, noiseSuppression: true },
                     video: false
                 });
-
-                // Microfoon standaard UIT (push-to-talk)
-                setMicMute(true);
-
+                setMicMute(true); // PTT: standaard gedempt
+                document.getElementById('login-feedback').innerText = "Verbinden...";
                 initPeer();
             } catch (err) {
-                alert("Microfoontoegang is verplicht om de Walkie-Talkie te gebruiken.");
+                alert("Microfoontoegang is verplicht. Fout: " + err.message);
             }
         }
 
         // ---------- PEER INIT ----------
         function initPeer() {
-            // Unieke ID per gebruiker, met kanaal-prefix
-            // We voegen een willekeurig suffix toe om dubbele namen te voorkomen
-            const uniqueSuffix = Math.random().toString(36).substring(2, 7);
-            myPeerId = `walkie-ch${myChannel}-${uniqueSuffix}`;
+            const suffix = Math.random().toString(36).substring(2, 8);
+            myPeerId = PEER_PREFIX + myChannel + "-" + suffix;
 
             peer = new Peer(myPeerId, {
                 config: {
@@ -185,73 +206,345 @@
                 }
             });
 
-            peer.on('open', (id) => {
+            peer.on('open', () => {
+                // Scherm wisselen
                 document.getElementById('login-screen').classList.add('hidden');
                 document.getElementById('main-screen').classList.remove('hidden');
                 document.getElementById('disp-name').innerText = myName;
                 document.getElementById('disp-channel').innerText = "CH-" + myChannel;
-                setLed('green', 'Online');
-                log("Kanaal " + myChannel + " geopend. Wachten op andere deelnemers...");
+                log("Kanaal " + myChannel + " geopend. Verbinden met netwerk...");
+                setLed('amber', 'Verbinden');
 
-                // Zeg hallo tegen het netwerk (broadcast discovery)
-                broadcastPresence();
+                // Probeer host te worden OF verbind met bestaande host
+                tryBecomeHost();
             });
 
             peer.on('error', (err) => {
                 console.error("Peer error:", err);
                 if (err.type === 'unavailable-id') {
-                    alert("Er ging iets mis met je ID. Probeer opnieuw.");
-                    location.reload();
+                    log("ID bezet. Opnieuw proberen...");
+                    setTimeout(initPeer, 500);
                 } else if (err.type === 'peer-unavailable') {
-                    // Iemand is niet bereikbaar – negeer
-                } else {
-                    log("Fout: " + err.type);
+                    // host niet bereikbaar → misschien net weg
+                    log("Host niet bereikbaar. Opnieuw proberen...");
+                    setTimeout(tryBecomeHost, 1000);
                 }
             });
 
-            // ---------- INKOMENDE CALL ----------
+            // Inkomende dataconnectie (host krijgt deze van nieuwe peers)
+            peer.on('connection', (conn) => {
+                if (isHost) {
+                    handleIncomingDataConn(conn);
+                } else {
+                    // Als we geen host zijn, negeer (zou niet moeten gebeuren)
+                    conn.close();
+                }
+            });
+
+            // Inkomende audiocall (host krijgt deze van nieuwe peers)
             peer.on('call', (call) => {
-                console.log("Inkomende call van:", call.peer);
-                call.answer(localStream); // antwoord altijd met onze stream (gedempt)
-                handleCall(call);
+                if (isHost) {
+                    handleIncomingCallAsHost(call);
+                } else {
+                    // Als we geen host zijn, kan dit een mesh-call zijn van een andere peer
+                    handleIncomingCallAsPeer(call);
+                }
             });
         }
 
-        // ---------- CALL AFHANDELEN (inkomend + uitgaand) ----------
-        function handleCall(call) {
-            const peerId = call.peer;
+        // ---------- HOST WORDEN of VERBINDEN ----------
+        function tryBecomeHost() {
+            // We proberen eerst host te worden.
+            // Als de host-ID al bezet is, wordt de host-connectie geweigerd
+            // → dan verbinden we met de bestaande host.
 
-            // Als we al een verbinding met deze peer hebben, sluit de oude
-            if (connections[peerId]) {
-                try { connections[peerId].call.close(); } catch(e) {}
-                try { connections[peerId].audioEl.remove(); } catch(e) {}
-                delete connections[peerId];
+            const hostId = HOST_PREFIX + myChannel;
+
+            // Maak een tijdelijke peer met host-ID om te proberen host te worden
+            // Als het lukt → wij zijn host
+            // Als het mislukt → verbind met bestaande host
+
+            const hostPeer = new Peer(hostId, {
+                config: {
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' }
+                    ]
+                }
+            });
+
+            hostPeer.on('open', () => {
+                // We zijn host!
+                isHost = true;
+                console.log("Ik ben host voor kanaal", myChannel);
+                document.getElementById('disp-role').innerText = "HOST";
+                setLed('green', 'Host online');
+                log("Jij bent host van kanaal " + myChannel + ". Wachten op deelnemers...");
+                enablePTT(true);
+
+                // Gebruik hostPeer als main peer voor inkomende verbindingen
+                // We sluiten de originele peer en gebruiken hostPeer
+                if (peer) {
+                    try { peer.destroy(); } catch(e) {}
+                }
+                peer = hostPeer;
+                setupHostListeners();
+            });
+
+            hostPeer.on('error', (err) => {
+                if (err.type === 'unavailable-id') {
+                    // Host bestaat al → verbind met bestaande host
+                    console.log("Host bestaat al. Verbinden als deelnemer.");
+                    try { hostPeer.destroy(); } catch(e) {}
+                    connectToHost();
+                } else {
+                    console.error("Host peer error:", err);
+                    connectToHost();
+                }
+            });
+        }
+
+        // ---------- ALS DEELNEMER MET HOST VERBINDEN ----------
+        function connectToHost() {
+            isHost = false;
+            document.getElementById('disp-role').innerText = "PEER";
+
+            const hostId = HOST_PREFIX + myChannel;
+
+            // Data verbinding naar host
+            hostConn = peer.connect(hostId, { reliable: true });
+
+            hostConn.on('open', () => {
+                // Stuur onze naam
+                hostConn.send({ type: 'hello', name: myName, peerId: myPeerId });
+                setLed('green', 'Online');
+                log("Verbonden met host. Wachten op andere deelnemers...");
+            });
+
+            hostConn.on('data', (data) => {
+                handleHostMessage(data);
+            });
+
+            hostConn.on('close', () => {
+                log("Host is weg. Opnieuw verbinden...");
+                setLed('amber', 'Herverbinden');
+                enablePTT(false);
+                // Sluit alle huidige verbindingen
+                Object.keys(connections).forEach(pid => removeConnection(pid));
+                // Probeer host te worden
+                setTimeout(() => {
+                    // Nieuwe peer initialiseren
+                    if (peer) { try { peer.destroy(); } catch(e) {} }
+                    initPeer();
+                }, 1500);
+            });
+
+            hostConn.on('error', (err) => {
+                console.error("Host conn error:", err);
+            });
+
+            // Audio verbinding naar host (host stuurt onze audio door naar anderen)
+            hostCall = peer.call(hostId, localStream);
+            if (hostCall) {
+                hostCall.on('stream', (remoteStream) => {
+                    // We horen de host (die op zijn beurt anderen doorstuurt)
+                    let audioEl = document.getElementById('host-audio');
+                    if (!audioEl) {
+                        audioEl = document.createElement('audio');
+                        audioEl.id = 'host-audio';
+                        audioEl.autoplay = true;
+                        audioEl.playsInline = true;
+                        audioContainer.appendChild(audioEl);
+                    }
+                    audioEl.srcObject = remoteStream;
+                    audioEl.play().catch(e => console.warn("Autoplay:", e));
+                });
+                hostCall.on('close', () => {
+                    console.log("Host call gesloten");
+                });
             }
+        }
 
-            // Audio element aanmaken voor deze peer
+        // ---------- HOST: listeners ----------
+        function setupHostListeners() {
+            // Luister op de host-peer naar nieuwe dataconnecties
+            peer.on('connection', (conn) => {
+                handleIncomingDataConn(conn);
+            });
+
+            // Luister op de host-peer naar nieuwe audiocalls
+            peer.on('call', (call) => {
+                handleIncomingCallAsHost(call);
+            });
+        }
+
+        // ---------- HOST: inkomende dataconnectie ----------
+        function handleIncomingDataConn(conn) {
+            const remoteId = conn.peer;
+            console.log("Host: inkomende dataconnectie van", remoteId);
+
+            conn.on('data', (data) => {
+                if (data.type === 'hello') {
+                    // Nieuwe deelnemer
+                    hostDataConns[remoteId] = conn;
+                    hostPeers[remoteId] = { name: data.name, call: null, audioEl: null };
+
+                    // Stuur huidige deelnemerslijst naar nieuwkomer
+                    const peerList = Object.keys(hostPeers).map(pid => ({
+                        peerId: pid,
+                        name: hostPeers[pid].name
+                    }));
+                    conn.send({ type: 'peer-list', peers: peerList });
+
+                    // Stuur de nieuwkomer naar alle andere deelnemers
+                    broadcastToHostPeers({
+                        type: 'new-peer',
+                        peerId: remoteId,
+                        name: data.name
+                    }, remoteId);
+
+                    log("Deelnemer " + data.name + " toegetreden.");
+                    updateHostDisplay();
+                }
+            });
+
+            conn.on('close', () => {
+                console.log("Host: deelnemer weg", remoteId);
+                const name = hostPeers[remoteId] ? hostPeers[remoteId].name : "?";
+                if (hostPeers[remoteId] && hostPeers[remoteId].audioEl) {
+                    hostPeers[remoteId].audioEl.remove();
+                }
+                delete hostDataConns[remoteId];
+                delete hostPeers[remoteId];
+
+                // Laat alle anderen weten dat deze weg is
+                broadcastToHostPeers({
+                    type: 'peer-left',
+                    peerId: remoteId
+                }, null);
+
+                log("Deelnemer " + name + " vertrokken.");
+                updateHostDisplay();
+            });
+        }
+
+        // ---------- HOST: inkomende audiocall ----------
+        function handleIncomingCallAsHost(call) {
+            const remoteId = call.peer;
+            console.log("Host: inkomende call van", remoteId);
+
+            call.answer(localStream);
+
+            // Audio element voor deze peer aanmaken
+            const audioEl = document.createElement('audio');
+            audioEl.autoplay = true;
+            audioEl.playsInline = true;
+            audioEl.dataset.peerId = remoteId;
+            audioContainer.appendChild(audioEl);
+
+            if (!hostPeers[remoteId]) hostPeers[remoteId] = { name: "?", call: null, audioEl: null };
+            hostPeers[remoteId].call = call;
+            hostPeers[remoteId].audioEl = audioEl;
+
+            call.on('stream', (remoteStream) => {
+                audioEl.srcObject = remoteStream;
+                audioEl.play().catch(e => console.warn("Autoplay:", e));
+            });
+
+            call.on('close', () => {
+                audioEl.remove();
+                if (hostPeers[remoteId]) hostPeers[remoteId].call = null;
+            });
+        }
+
+        // ---------- DEELNEMER: inkomende call (mesh) ----------
+        function handleIncomingCallAsPeer(call) {
+            console.log("Peer: inkomende mesh-call van", call.peer);
+            call.answer(localStream);
+
+            const audioEl = document.createElement('audio');
+            audioEl.autoplay = true;
+            audioEl.playsInline = true;
+            audioEl.dataset.peerId = call.peer;
+            audioContainer.appendChild(audioEl);
+
+            connections[call.peer] = {
+                call: call,
+                audioEl: audioEl,
+                name: connections[call.peer] ? connections[call.peer].name : "Peer"
+            };
+
+            call.on('stream', (remoteStream) => {
+                audioEl.srcObject = remoteStream;
+                audioEl.play().catch(e => console.warn("Autoplay:", e));
+                updatePeerCount();
+                enablePTT(true);
+            });
+
+            call.on('close', () => {
+                removeConnection(call.peer);
+            });
+        }
+
+        // ---------- HOST: broadcast naar alle peers ----------
+        function broadcastToHostPeers(msg, excludePeerId) {
+            Object.keys(hostDataConns).forEach(pid => {
+                if (pid === excludePeerId) return;
+                try { hostDataConns[pid].send(msg); } catch(e) {}
+            });
+        }
+
+        // ---------- DEELNEMER: bericht van host ----------
+        function handleHostMessage(data) {
+            if (data.type === 'peer-list') {
+                // Lijst met bestaande peers → verbind met elk
+                data.peers.forEach(p => {
+                    if (p.peerId === myPeerId) return;
+                    connectToMeshPeer(p.peerId, p.name);
+                });
+            } else if (data.type === 'new-peer') {
+                // Nieuwe peer → verbind met hem
+                if (data.peerId !== myPeerId) {
+                    connectToMeshPeer(data.peerId, data.name);
+                }
+            } else if (data.type === 'peer-left') {
+                // Peer weg → sluit verbinding
+                removeConnection(data.peerId);
+            }
+        }
+
+        // ---------- MESH: verbinden met andere peer ----------
+        function connectToMeshPeer(peerId, name) {
+            if (connections[peerId]) return; // al verbonden
+            if (peerId === myPeerId) return;
+
+            console.log("Mesh: verbinden met", peerId);
+
+            const call = peer.call(peerId, localStream);
+            if (!call) return;
+
             const audioEl = document.createElement('audio');
             audioEl.autoplay = true;
             audioEl.playsInline = true;
             audioEl.dataset.peerId = peerId;
             audioContainer.appendChild(audioEl);
 
-            connections[peerId] = { call, audioEl };
+            connections[peerId] = { call, audioEl, name: name || "Peer" };
 
             call.on('stream', (remoteStream) => {
                 audioEl.srcObject = remoteStream;
-                audioEl.play().catch(e => console.warn("Autoplay geblokkeerd:", e));
+                audioEl.play().catch(e => console.warn("Autoplay:", e));
                 updatePeerCount();
                 enablePTT(true);
-                log("Verbonden met " + peerId.split('-').pop() + ". Klaar om te praten.");
+                log("Verbonden met " + (name || "peer") + ". Klaar om te praten.");
             });
 
             call.on('close', () => {
-                console.log("Call gesloten:", peerId);
                 removeConnection(peerId);
             });
 
             call.on('error', (err) => {
-                console.error("Call error:", err);
+                console.error("Mesh call error:", err);
                 removeConnection(peerId);
             });
         }
@@ -262,56 +555,18 @@
                 delete connections[peerId];
             }
             updatePeerCount();
-            if (Object.keys(connections).length === 0) {
+            if (Object.keys(connections).length === 0 && !isHost) {
                 enablePTT(false);
                 log("Geen deelnemers meer verbonden.");
             }
         }
 
-        // ---------- PRESENCE / DISCOVERY ----------
-        // We sturen een klein signaal via een data-verbinding om peers te laten weten dat we er zijn.
-        // Omdat PeerJS geen broadcast kent, gebruiken we een simpele aanpak:
-        // bij openen sturen we een "ping" naar alle kanalen binnen ons bereik.
-        // In de praktijk: we proberen verbinding te maken met alle andere kanaalnummers.
-        function broadcastPresence() {
-            // We kennen de andere PeerJS-IDs niet direct.
-            // Daarom sturen we een uitnodiging naar alle andere kanaalnummers.
-            // Dit werkt alleen als er iemand op dat kanaal zit met een bekende ID.
-            // Beter: we gebruiken een gedeelde "lobby" op een vast kanaal.
-            // Voor nu: we wachten tot iemand anders ons belt.
-            // Zie connectToPeer() hieronder voor handmatige verbinding.
+        // ---------- HOST: display updaten ----------
+        function updateHostDisplay() {
+            updatePeerCount();
+            const names = Object.values(hostPeers).map(p => p.name).filter(n => n !== "?");
+            document.getElementById('disp-peer-list').innerText = names.length ? names.join(", ") : "";
         }
-
-        // ---------- HANDMATIG VERBINDEN ----------
-        // Omdat we de unieke ID van anderen niet weten (die heeft een random suffix),
-        // bieden we een handmatige koppeling: kies een kanaal en verbind.
-        // In de praktijk: beide partijen moeten op "Koppel" drukken.
-        // Eenvoudiger: gebruik een gedeelde lobby-ID per kanaal.
-        //
-        // OPLOSSING: we maken één vast "kanaal-host" ID per kanaal.
-        // Iedereen die binnenkomt, stuurt een bericht naar de host.
-        // De host verbindt alle deelnemers met elkaar.
-        //
-        // Voor de eenvoud in deze versie: gebruik de kanaal-ID als vaste PeerJS-ID.
-        // Iedereen die op kanaal 1100 zit, gebruikt ID "walkie-channel-1100".
-        // Maar dan kan er maar 1 iemand per kanaal zijn...
-        //
-        // Daarom: MESH via vaste kanaalnaam + suffix werkt niet automatisch.
-        // We gebruiken daarom een tussenoplossing: een "signaling" kanaal.
-
-        // ---------- SIMPELE OPLOSSING: VASTE KANAAL-ID ----------
-        // We laten iedereen op hetzelfde kanaal dezelfde PeerJS-ID gebruiken? Nee, dat kan niet.
-        // Daarom: we gebruiken een DataConnection naar een vaste "host" per kanaal.
-        // De host is de eerste die inlogt. Anderen verbinden met de host.
-        // De host vertelt iedereen wie er zijn.
-        //
-        // Voor deze versie: we maken het simpel en robuust.
-        // Iedereen die inlogt op kanaal X, probeert verbinding te maken met:
-        //   walkie-host-X
-        // Als dat lukt → host bestaat al → we worden deelnemer.
-        // Als dat niet lukt → wij worden de host.
-
-        // (Deze logica zit in de volgende versie. Voor nu: zie hieronder.)
 
         // ---------- PTT ----------
         function setMicMute(isMuted) {
@@ -329,7 +584,8 @@
             pttIcon.className = "fa-solid fa-podcast text-4xl mb-1 animate-pulse";
             pttLabel.innerText = "Zenden...";
             setLed('red', 'Zenden');
-            log("🔊 Je spreekt nu... (" + Object.keys(connections).length + " luisteraars)");
+            const listeners = isHost ? Object.keys(hostPeers).length : Object.keys(connections).length;
+            log("🔊 Je spreekt nu... (" + listeners + " luisteraars)");
         }
 
         function stopTransmitting() {
@@ -338,7 +594,7 @@
             pttBtn.classList.remove('active');
             pttIcon.className = "fa-solid fa-microphone text-4xl mb-1";
             pttLabel.innerText = "Houd in";
-            setLed('green', 'Online');
+            setLed('green', isHost ? 'Host online' : 'Online');
             log("Transmissie beëindigd.");
         }
 
@@ -352,7 +608,8 @@
         }
 
         function updatePeerCount() {
-            document.getElementById('disp-peers').innerText = Object.keys(connections).length;
+            const count = isHost ? Object.keys(hostPeers).length : Object.keys(connections).length;
+            document.getElementById('disp-peers').innerText = count;
         }
 
         function setLed(color, statusText) {
