@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WebRTC Walkie Talkie</title>
-    <!-- We laden PeerJS in voor de directe verbinding tussen apparaten -->
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <style>
         body {
@@ -29,7 +28,11 @@
         .btn:active {
             background-color: #e64a19;
         }
-        input {
+        .btn:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+        }
+        input, select {
             padding: 10px;
             font-size: 16px;
             border-radius: 5px;
@@ -40,85 +43,193 @@
             margin-top: 20px;
             color: #bbb;
         }
+        #login-screen, #main-screen {
+            max-width: 500px;
+            margin: 0 auto;
+        }
+        .hidden {
+            display: none;
+        }
     </style>
 </head>
 <body>
 
-    <h1>🎙️ Web Walkie-Talkie</h1>
-    
-    <div>
-        <p>Jouw ID: <strong id="my-id">Laden...</strong></p>
+    <!-- ============ LOGIN SCHERM ============ -->
+    <div id="login-screen">
+        <h1>🎙️ Web Walkie-Talkie</h1>
+        <p>Log in met je naam en kies je kanaalnummer.</p>
+
+        <div>
+            <input type="text" id="name-input" placeholder="Jouw naam" maxlength="20">
+        </div>
+        <div>
+            <select id="id-select">
+                <option value="">-- Kies je kanaalnummer --</option>
+                <option value="1100">1100</option>
+                <option value="1101">1101</option>
+                <option value="1102">1102</option>
+                <option value="1103">1103</option>
+                <option value="1104">1104</option>
+                <option value="1105">1105</option>
+                <option value="1106">1106</option>
+                <option value="1107">1107</option>
+                <option value="1108">1108</option>
+                <option value="1109">1109</option>
+                <option value="1110">1110</option>
+            </select>
+        </div>
+        <button onclick="login()" style="padding: 12px 30px; border-radius: 5px; border: none; background: #4caf50; color: white; font-size: 16px; margin-top: 10px;">
+            Inloggen
+        </button>
+        <div id="login-status" style="margin-top: 15px; color: #bbb;"></div>
     </div>
 
-    <hr style="border-color: #444;">
+    <!-- ============ HOOFD SCHERM ============ -->
+    <div id="main-screen" class="hidden">
+        <h1>🎙️ Web Walkie-Talkie</h1>
 
-    <div>
-        <h3>Verbinden met een vriend</h3>
-        <input type="text" id="peer-id-input" placeholder="Vul ID van vriend in">
-        <button onclick="connectToPeer()" style="padding: 10px 20px; border-radius: 5px; border: none; background: #4caf50; color: white; font-size: 16px;">Verbind</button>
+        <div>
+            <p>Ingelogd als: <strong id="my-name">-</strong></p>
+            <p>Jouw kanaalnummer: <strong id="my-id">-</strong></p>
+        </div>
+
+        <hr style="border-color: #444;">
+
+        <div>
+            <h3>Verbinden met een vriend</h3>
+            <select id="peer-id-input">
+                <option value="">-- Kies kanaalnummer --</option>
+                <option value="1100">1100</option>
+                <option value="1101">1101</option>
+                <option value="1102">1102</option>
+                <option value="1103">1103</option>
+                <option value="1104">1104</option>
+                <option value="1105">1105</option>
+                <option value="1106">1106</option>
+                <option value="1107">1107</option>
+                <option value="1108">1108</option>
+                <option value="1109">1109</option>
+                <option value="1110">1110</option>
+            </select>
+            <button onclick="connectToPeer()" style="padding: 10px 20px; border-radius: 5px; border: none; background: #4caf50; color: white; font-size: 16px;">
+                Verbind
+            </button>
+        </div>
+
+        <button id="talk-btn" class="btn" disabled>Houd ingedrukt om te praten</button>
+
+        <div id="status">Status: Wachten...</div>
     </div>
-
-    <!-- De Push-to-Talk knop -->
-    <button id="talk-btn" class="btn" disabled>Houd ingedrukt om te praten</button>
-
-    <div id="status">Status: Wachten op PeerJS server...</div>
 
     <script>
-        const peer = new Peer(); // Maakt automatisch een uniek ID aan via de PeerJS server
+        let peer = null;
         let currentCall = null;
         let localStream = null;
         let conn = null;
+        let myName = "";
+        let myId = "";
 
         const talkBtn = document.getElementById('talk-btn');
         const statusDiv = document.getElementById('status');
 
-        // 1. Zodra je eigen ID is gegenereerd
-        peer.on('open', (id) => {
-            document.getElementById('my-id').innerText = id;
-            statusDiv.innerText = "Status: Klaar voor verbinding. Deel je ID!";
-        });
+        // ============ LOGIN ============
+        function login() {
+            const name = document.getElementById('name-input').value.trim();
+            const id = document.getElementById('id-select').value;
+            const loginStatus = document.getElementById('login-status');
 
-        // 2. Vraag toegang tot de microfoon zodra de pagina laadt
-        navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-            .then(stream => {
-                localStream = stream;
-                // Mute de microfoon standaard (Walkie-Talkie modus)
-                setMicrophoneMute(true);
-            })
-            .catch(err => {
-                statusDiv.innerText = "Status: Microfoon toegang geweigerd! " + err;
+            if (!name) {
+                loginStatus.innerText = "Vul een naam in.";
+                return;
+            }
+            if (!id) {
+                loginStatus.innerText = "Kies een kanaalnummer.";
+                return;
+            }
+
+            myName = name;
+            myId = id;
+            loginStatus.innerText = "Verbinden met server...";
+
+            // Maak Peer met vaste ID
+            peer = new Peer(id);
+
+            peer.on('open', (assignedId) => {
+                // Toon hoofdscherm
+                document.getElementById('login-screen').classList.add('hidden');
+                document.getElementById('main-screen').classList.remove('hidden');
+                document.getElementById('my-name').innerText = myName;
+                document.getElementById('my-id').innerText = assignedId;
+                statusDiv.innerText = "Status: Klaar voor verbinding. Kies een kanaalnummer om te bellen.";
+
+                // Vraag meteen microfoon toegang
+                askMicrophone();
             });
 
-        // 3. Als iemand jou belt (inkomende verbinding)
-        peer.on('call', (call) => {
-            currentCall = call;
-            // Beantwoord de oproep met jouw (nog gedempte) microfoonsignaal
-            call.answer(localStream);
-            
-            call.on('stream', (remoteStream) => {
-                playRemoteStream(remoteStream);
-                statusDiv.innerText = "Status: Verbonden! Je kunt nu praten.";
-                talkBtn.disabled = false;
+            peer.on('error', (err) => {
+                if (err.type === 'unavailable-id') {
+                    loginStatus.innerText = "Dit kanaalnummer (" + id + ") is al in gebruik. Kies een ander nummer.";
+                } else {
+                    loginStatus.innerText = "Fout: " + err.type;
+                }
+                // Reset peer zodat opnieuw geprobeerd kan worden
+                if (peer) {
+                    peer.destroy();
+                    peer = null;
+                }
             });
-        });
 
-        // Ook luisteren naar text-data om de knoppen synchroon te houden
-        peer.on('connection', (c) => {
-            conn = c;
-            setupDataConnection();
-        });
+            // Inkomende oproep
+            peer.on('call', (call) => {
+                currentCall = call;
+                call.answer(localStream);
 
-        // 4. Handmatig verbinden met de ander
+                call.on('stream', (remoteStream) => {
+                    playRemoteStream(remoteStream);
+                    statusDiv.innerText = "Status: Verbonden! Je kunt nu praten.";
+                    talkBtn.disabled = false;
+                });
+            });
+
+            // Inkomende data verbinding
+            peer.on('connection', (c) => {
+                conn = c;
+                setupDataConnection();
+            });
+        }
+
+        // ============ MICROFOON ============
+        function askMicrophone() {
+            navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+                .then(stream => {
+                    localStream = stream;
+                    setMicrophoneMute(true); // standaard gedempt
+                })
+                .catch(err => {
+                    statusDiv.innerText = "Status: Microfoon toegang geweigerd! " + err;
+                });
+        }
+
+        // ============ VERBINDEN ============
         function connectToPeer() {
             const peerId = document.getElementById('peer-id-input').value;
-            if (!peerId) return alert("Vul eerst een ID in!");
+            if (!peerId) return alert("Kies eerst een kanaalnummer!");
 
-            statusDiv.innerText = "Verbinden...";
-            
-            // Start data en audio verbinding
+            if (peerId === myId) {
+                return alert("Je kunt niet met jezelf verbinden. Kies een ander nummer.");
+            }
+
+            if (!localStream) {
+                return alert("Microfoon is nog niet beschikbaar. Wacht even of geef toestemming.");
+            }
+
+            statusDiv.innerText = "Verbinden met " + peerId + "...";
+
+            // Data verbinding
             conn = peer.connect(peerId);
             setupDataConnection();
 
+            // Audio verbinding
             const call = peer.call(peerId, localStream);
             currentCall = call;
 
@@ -127,18 +238,22 @@
                 statusDiv.innerText = "Status: Verbonden! Je kunt nu praten.";
                 talkBtn.disabled = false;
             });
+
+            call.on('error', (err) => {
+                statusDiv.innerText = "Verbindingsfout: " + err;
+            });
         }
 
         function setupDataConnection() {
+            if (!conn) return;
             conn.on('open', () => {
                 statusDiv.innerText = "Status: Verbonden! Je kunt nu praten.";
                 talkBtn.disabled = false;
             });
         }
 
-        // 5. Audio afspelen van de ander
+        // ============ AUDIO AFSPELEN ============
         function playRemoteStream(remoteStream) {
-            // Check of er al een audio-element is, zo niet maak er een
             let audio = document.getElementById('remote-audio');
             if (!audio) {
                 audio = document.createElement('audio');
@@ -149,7 +264,7 @@
             audio.srcObject = remoteStream;
         }
 
-        // Helper om microfoon te muten/unmuten
+        // ============ MICROFOON MUTEN ============
         function setMicrophoneMute(isMuted) {
             if (localStream) {
                 localStream.getAudioTracks().forEach(track => {
@@ -158,7 +273,7 @@
             }
         }
 
-        // 6. Push-to-Talk Logica (Muis en Touch voor mobiel)
+        // ============ PUSH-TO-TALK ============
         function startTalking() {
             if (!talkBtn.disabled) {
                 setMicrophoneMute(false);
@@ -173,12 +288,10 @@
             talkBtn.style.backgroundColor = "#ff5722";
         }
 
-        // Events voor computers (muis)
         talkBtn.addEventListener('mousedown', startTalking);
         talkBtn.addEventListener('mouseup', stopTalking);
         talkBtn.addEventListener('mouseleave', stopTalking);
 
-        // Events voor telefoons (touch)
         talkBtn.addEventListener('touchstart', (e) => {
             e.preventDefault();
             startTalking();
