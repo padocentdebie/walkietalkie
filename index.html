@@ -2,257 +2,446 @@
 <html lang="nl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>WebRTC Walkie Talkie</title>
+    <!-- Tailwind CSS voor styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome voor iconen -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- PeerJS voor WebRTC -->
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <style>
         body {
-            font-family: sans-serif;
-            text-align: center;
-            background-color: #222;
+            font-family: 'Inter', sans-serif;
+            background-color: #222222;
+            color: #ffffff;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .btn-orange {
+            background: linear-gradient(135deg, #ff5722, #f44336);
             color: white;
-            padding: 20px;
+            box-shadow: 0 4px 15px rgba(255, 87, 34, 0.4);
+            transition: all 0.2s ease;
         }
-        .btn {
-            background-color: #ff5722;
-            color: white;
-            border: none;
-            padding: 20px 40px;
-            font-size: 20px;
-            border-radius: 50px;
-            cursor: pointer;
-            margin: 20px 0;
-            user-select: none;
-            touch-action: manipulation;
+
+        .btn-orange:active {
+            transform: scale(0.95);
+            box-shadow: 0 2px 5px rgba(255, 87, 34, 0.6);
+            background: #e64a19;
         }
-        .btn:active {
-            background-color: #e64a19;
-        }
-        .btn:disabled {
-            background-color: #555;
+
+        .btn-orange:disabled {
+            background: #555555;
+            box-shadow: none;
             cursor: not-allowed;
+            transform: none;
         }
-        input, select {
-            padding: 10px;
-            font-size: 16px;
-            border-radius: 5px;
-            border: none;
-            margin: 5px;
+
+        .ptt-active {
+            background: linear-gradient(135deg, #4caf50, #388e3c) !important;
+            box-shadow: 0 0 20px rgba(76, 175, 80, 0.6) !important;
+            animation: pulse-green 1.5s infinite;
         }
-        #status {
-            margin-top: 20px;
-            color: #bbb;
+
+        @keyframes pulse-green {
+            0% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7); }
+            70% { box-shadow: 0 0 0 15px rgba(76, 175, 80, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0); }
         }
-        #login-screen, #main-screen {
-            max-width: 500px;
-            margin: 0 auto;
-        }
-        .hidden {
-            display: none;
-        }
+
+        /* Verberg elementen */
+        .hidden { display: none !important; }
+
+        /* Custom Scrollbar voor gebruikerslijst */
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #333; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #666; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #888; }
     </style>
 </head>
-<body>
+<body class="min-h-screen flex items-center justify-center p-4">
 
     <!-- ============ LOGIN SCHERM ============ -->
-    <div id="login-screen">
-        <h1>🎙️ Web Walkie-Talkie</h1>
-        <p>Log in met je naam en kies je kanaalnummer.</p>
+    <div id="login-screen" class="w-full max-w-md bg-gray-800 rounded-2xl shadow-2xl border border-gray-700 p-8 text-center animate-fade-in">
+        <div class="w-20 h-20 mx-auto bg-gray-700 rounded-full flex items-center justify-center mb-4 shadow-inner">
+            <i class="fa-solid fa-walkie-talkie text-4xl text-orange-500"></i>
+        </div>
+        <h1 class="text-3xl font-bold mb-2">Walkie-Talkie</h1>
+        <p class="text-gray-400 mb-8 text-sm">Log in met je naam en kies een kanaal.</p>
+        
+        <div class="space-y-4 text-left">
+            <div>
+                <label class="block text-sm font-medium text-gray-400 mb-1">Naam</label>
+                <input type="text" id="name-input" placeholder="Bijv. Alpha" maxlength="20" 
+                    class="w-full p-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-orange-500 transition-colors">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-400 mb-1">Kanaalnummer</label>
+                <select id="id-select" class="w-full p-3 bg-gray-900 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-orange-500 transition-colors appearance-none">
+                    <option value="">-- Kies een kanaal --</option>
+                    <option value="1100">Kanaal 1100</option>
+                    <option value="1101">Kanaal 1101</option>
+                    <option value="1102">Kanaal 1102</option>
+                    <option value="1103">Kanaal 1103</option>
+                    <option value="1104">Kanaal 1104</option>
+                    <option value="1105">Kanaal 1105</option>
+                    <option value="1106">Kanaal 1106</option>
+                    <option value="1107">Kanaal 1107</option>
+                    <option value="1108">Kanaal 1108</option>
+                    <option value="1109">Kanaal 1109</option>
+                    <option value="1110">Kanaal 1110</option>
+                </select>
+            </div>
+        </div>
 
-        <div>
-            <input type="text" id="name-input" placeholder="Jouw naam" maxlength="20">
-        </div>
-        <div>
-            <select id="id-select">
-                <option value="">-- Kies je kanaalnummer --</option>
-                <option value="1100">1100</option>
-                <option value="1101">1101</option>
-                <option value="1102">1102</option>
-                <option value="1103">1103</option>
-                <option value="1104">1104</option>
-                <option value="1105">1105</option>
-                <option value="1106">1106</option>
-                <option value="1107">1107</option>
-                <option value="1108">1108</option>
-                <option value="1109">1109</option>
-                <option value="1110">1110</option>
-            </select>
-        </div>
-        <button onclick="login()" style="padding: 12px 30px; border-radius: 5px; border: none; background: #4caf50; color: white; font-size: 16px; margin-top: 10px;">
-            Inloggen
+        <button id="login-btn" onclick="login()" class="btn-orange w-full py-4 rounded-xl font-bold text-lg mt-8 uppercase tracking-wider flex items-center justify-center gap-2">
+            <span>Inloggen</span>
+            <i class="fa-solid fa-arrow-right"></i>
         </button>
-        <div id="login-status" style="margin-top: 15px; color: #bbb;"></div>
+        <div id="login-status" class="mt-4 text-sm text-gray-400 h-5"></div>
     </div>
 
     <!-- ============ HOOFD SCHERM ============ -->
-    <div id="main-screen" class="hidden">
-        <h1>🎙️ Web Walkie-Talkie</h1>
-
-        <div>
-            <p>Ingelogd als: <strong id="my-name">-</strong></p>
-            <p>Jouw kanaalnummer: <strong id="my-id">-</strong></p>
-        </div>
-
-        <hr style="border-color: #444;">
-
-        <div>
-            <h3>Verbinden met een vriend</h3>
-            <select id="peer-id-input">
-                <option value="">-- Kies kanaalnummer --</option>
-                <option value="1100">1100</option>
-                <option value="1101">1101</option>
-                <option value="1102">1102</option>
-                <option value="1103">1103</option>
-                <option value="1104">1104</option>
-                <option value="1105">1105</option>
-                <option value="1106">1106</option>
-                <option value="1107">1107</option>
-                <option value="1108">1108</option>
-                <option value="1109">1109</option>
-                <option value="1110">1110</option>
-            </select>
-            <button onclick="connectToPeer()" style="padding: 10px 20px; border-radius: 5px; border: none; background: #4caf50; color: white; font-size: 16px;">
-                Verbind
+    <div id="main-screen" class="hidden w-full max-w-lg bg-gray-800 rounded-2xl shadow-2xl border border-gray-700 flex flex-col h-[90vh] max-h-[800px]">
+        <!-- Header -->
+        <div class="bg-gray-900 p-4 rounded-t-2xl flex justify-between items-center border-b border-gray-700">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center">
+                    <i class="fa-solid fa-walkie-talkie text-orange-500"></i>
+                </div>
+                <div>
+                    <h2 class="font-bold text-lg leading-tight" id="my-name">-</h2>
+                    <p class="text-xs text-green-400 font-mono tracking-widest"><i class="fa-solid fa-circle text-[8px] mr-1"></i>Kanaal <span id="my-id">-</span></p>
+                </div>
+            </div>
+            <button onclick="logout()" class="p-2 text-gray-400 hover:text-red-500 transition-colors" title="Uitloggen">
+                <i class="fa-solid fa-power-off text-xl"></i>
             </button>
         </div>
 
-        <button id="talk-btn" class="btn" disabled>Houd ingedrukt om te praten</button>
+        <!-- Online Users List -->
+        <div class="p-4 flex-1 overflow-hidden flex flex-col">
+            <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Online Gebruikers</h3>
+            <div id="users-list" class="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-2">
+                <!-- Gebruikers worden hier geïnjecteerd via Firebase -->
+                <div class="text-center text-gray-500 text-sm mt-4 italic">Laden van online gebruikers...</div>
+            </div>
+        </div>
 
-        <div id="status">Status: Wachten...</div>
+        <!-- Verbindings status & PTT Controls -->
+        <div class="bg-gray-900 p-6 rounded-b-2xl border-t border-gray-700 flex flex-col items-center">
+            
+            <div class="w-full flex items-center justify-between mb-6 bg-gray-800 p-3 rounded-lg border border-gray-700">
+                <div class="flex flex-col">
+                    <span class="text-xs text-gray-400 uppercase font-semibold">Doelkanaal</span>
+                    <span id="target-channel-display" class="font-mono text-xl font-bold text-white">Geen</span>
+                </div>
+                <div id="connection-status-badge" class="px-3 py-1 rounded-full text-xs font-bold bg-gray-700 text-gray-400 flex items-center gap-2">
+                    <i class="fa-solid fa-circle-xmark"></i> Losgekoppeld
+                </div>
+            </div>
+
+            <button id="talk-btn" class="btn-orange w-40 h-40 rounded-full text-lg font-bold flex flex-col items-center justify-center gap-2 select-none" disabled>
+                <i class="fa-solid fa-microphone text-4xl mb-1"></i>
+                <span class="uppercase tracking-wide text-sm">Push to Talk</span>
+            </button>
+
+            <p id="status" class="mt-6 text-sm text-gray-400 text-center h-5">Kies een kanaal uit de lijst om te bellen.</p>
+        </div>
     </div>
 
+    <!-- ============ CUSTOM ALERT MODAL ============ -->
+    <div id="alert-modal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-gray-800 rounded-xl border border-gray-700 shadow-2xl w-full max-w-sm p-6 text-center transform transition-transform scale-95 opacity-0" id="alert-modal-content">
+            <div class="w-16 h-16 rounded-full bg-red-500/20 text-red-500 mx-auto flex items-center justify-center mb-4">
+                <i class="fa-solid fa-triangle-exclamation text-3xl"></i>
+            </div>
+            <h3 class="text-xl font-bold mb-2">Let op</h3>
+            <p id="alert-message" class="text-gray-300 mb-6"></p>
+            <button onclick="closeAlert()" class="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-6 rounded-lg transition-colors">Begrepen</button>
+        </div>
+    </div>
+
+    <!-- ============ JAVASCRIPT LOGICA ============ -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, collection, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Variabelen globaal maken zodat non-module functies (zoals onclick in HTML) erbij kunnen
+        window.appId = typeof __app_id !== 'undefined' ? __app_id : 'walkie-talkie-app';
+        window.firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            // Fallback mock instellingen, zal niet werken zonder geldige config, maar voorkomt directe crashes in preview
+            apiKey: "mock-key", authDomain: "mock.firebaseapp.com", projectId: "mock-project"
+        };
+        
+        window.firebaseApp = initializeApp(window.firebaseConfig);
+        window.db = getFirestore(window.firebaseApp);
+        window.auth = getAuth(window.firebaseApp);
+        window.userAuth = null;
+        window.unsubscribeSnapshot = null;
+
+        // Init Auth
+        async function initAuth() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined') {
+                    await signInWithCustomToken(window.auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(window.auth);
+                }
+                window.userAuth = window.auth.currentUser;
+                console.log("Geauthenticeerd bij Firebase.");
+            } catch (e) {
+                console.error("Auth error", e);
+                showAlert("Kon niet verbinden met de database. Herlaad de pagina.");
+            }
+        }
+        initAuth();
+    </script>
+
     <script>
+        // Applicatie State
         let peer = null;
         let currentCall = null;
         let localStream = null;
-        let conn = null;
         let myName = "";
         let myId = "";
+        let targetId = "";
+        let isSpeaking = false;
 
+        // DOM Elementen
         const talkBtn = document.getElementById('talk-btn');
         const statusDiv = document.getElementById('status');
+        const targetDisplay = document.getElementById('target-channel-display');
+        const badge = document.getElementById('connection-status-badge');
 
-        // ============ LOGIN ============
-        function login() {
+        // ============ CUSTOM ALERT ============
+        function showAlert(msg) {
+            document.getElementById('alert-message').innerText = msg;
+            const modal = document.getElementById('alert-modal');
+            const content = document.getElementById('alert-modal-content');
+            modal.classList.remove('hidden');
+            // Timeout voor animatie
+            setTimeout(() => {
+                content.classList.remove('scale-95', 'opacity-0');
+                content.classList.add('scale-100', 'opacity-100');
+            }, 10);
+        }
+
+        function closeAlert() {
+            const modal = document.getElementById('alert-modal');
+            const content = document.getElementById('alert-modal-content');
+            content.classList.remove('scale-100', 'opacity-100');
+            content.classList.add('scale-95', 'opacity-0');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 200);
+        }
+
+        // Overriden alert() om fouten in iframe te voorkomen
+        window.alert = showAlert;
+
+        // ============ LOGIN & FIREBASE SYNC ============
+        async function login() {
             const name = document.getElementById('name-input').value.trim();
             const id = document.getElementById('id-select').value;
             const loginStatus = document.getElementById('login-status');
 
-            if (!name) {
-                loginStatus.innerText = "Vul een naam in.";
-                return;
-            }
-            if (!id) {
-                loginStatus.innerText = "Kies een kanaalnummer.";
-                return;
-            }
+            if (!name) return showAlert("Vul aub een naam in.");
+            if (!id) return showAlert("Kies aub een kanaalnummer.");
+            if (!window.userAuth) return showAlert("Nog niet verbonden met server. Wacht een seconde.");
+
+            loginStatus.innerText = "Bezig met verbinden & microfoon opzetten...";
+            document.getElementById('login-btn').disabled = true;
 
             myName = name;
             myId = id;
-            loginStatus.innerText = "Verbinden met server...";
 
-            // Maak Peer met vaste ID
+            // Microfoon opvragen
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                setMicrophoneMute(true); // Standaard muted (PTT)
+            } catch (err) {
+                document.getElementById('login-btn').disabled = false;
+                loginStatus.innerText = "";
+                return showAlert("Microfoontoegang geweigerd! De app werkt niet zonder microfoon.");
+            }
+
+            // Init PeerJS met gekozen ID
             peer = new Peer(id);
+            
+            peer.on('open', async (assignedId) => {
+                // Sla op in Firebase Public Data
+                try {
+                    const docRef = window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'activeUsers', myId);
+                    await window.setDoc(docRef, {
+                        name: myName,
+                        channel: myId,
+                        timestamp: Date.now(),
+                        userId: window.userAuth.uid
+                    });
+                    
+                    // Start realtime lijst
+                    listenToActiveUsers();
 
-            peer.on('open', (assignedId) => {
-                // Toon hoofdscherm
-                document.getElementById('login-screen').classList.add('hidden');
-                document.getElementById('main-screen').classList.remove('hidden');
-                document.getElementById('my-name').innerText = myName;
-                document.getElementById('my-id').innerText = assignedId;
-                statusDiv.innerText = "Status: Klaar voor verbinding. Kies een kanaalnummer om te bellen.";
-
-                // Vraag meteen microfoon toegang
-                askMicrophone();
+                    // UI Update
+                    document.getElementById('login-screen').classList.add('hidden');
+                    document.getElementById('main-screen').classList.remove('hidden');
+                    document.getElementById('my-name').innerText = myName;
+                    document.getElementById('my-id').innerText = assignedId;
+                    updateStatus("Klaar! Kies een gebruiker in de lijst om kanaal te openen.");
+                    loginStatus.innerText = "";
+                } catch (e) {
+                    console.error(e);
+                    showAlert("Kon gebruiker niet aanmelden in centrale lijst.");
+                }
+                document.getElementById('login-btn').disabled = false;
             });
 
             peer.on('error', (err) => {
+                document.getElementById('login-btn').disabled = false;
                 if (err.type === 'unavailable-id') {
-                    loginStatus.innerText = "Dit kanaalnummer (" + id + ") is al in gebruik. Kies een ander nummer.";
+                    showAlert(`Kanaal ${id} is al bezet door iemand anders! Kies een ander kanaal.`);
+                    loginStatus.innerText = "Kanaal bezet.";
                 } else {
-                    loginStatus.innerText = "Fout: " + err.type;
+                    showAlert("PeerJS Fout: " + err.type);
+                    loginStatus.innerText = "Verbindingsfout.";
                 }
-                // Reset peer zodat opnieuw geprobeerd kan worden
-                if (peer) {
-                    peer.destroy();
-                    peer = null;
-                }
+                if (peer) { peer.destroy(); peer = null; }
             });
 
-            // Inkomende oproep
+            // Afhandelen inkomende gesprekken
             peer.on('call', (call) => {
+                // Beantwoord automatisch de call
                 currentCall = call;
                 call.answer(localStream);
-
+                
+                targetId = call.peer;
+                targetDisplay.innerText = targetId;
+                updateBadge(true);
+                
                 call.on('stream', (remoteStream) => {
                     playRemoteStream(remoteStream);
-                    statusDiv.innerText = "Status: Verbonden! Je kunt nu praten.";
+                    updateStatus(`Verbonden met kanaal ${targetId}. Je kunt praten!`);
                     talkBtn.disabled = false;
                 });
-            });
-
-            // Inkomende data verbinding
-            peer.on('connection', (c) => {
-                conn = c;
-                setupDataConnection();
+                
+                call.on('close', () => {
+                    resetConnectionUI();
+                });
             });
         }
 
-        // ============ MICROFOON ============
-        function askMicrophone() {
-            navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-                .then(stream => {
-                    localStream = stream;
-                    setMicrophoneMute(true); // standaard gedempt
-                })
-                .catch(err => {
-                    statusDiv.innerText = "Status: Microfoon toegang geweigerd! " + err;
+        function listenToActiveUsers() {
+            if (!window.userAuth) return;
+            const usersCol = window.collection(window.db, 'artifacts', window.appId, 'public', 'data', 'activeUsers');
+            const q = window.query(usersCol); 
+
+            window.unsubscribeSnapshot = window.onSnapshot(q, (snapshot) => {
+                const listDiv = document.getElementById('users-list');
+                listDiv.innerHTML = "";
+                
+                let count = 0;
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    count++;
+                    
+                    const isMe = data.channel === myId;
+                    
+                    // Create user card
+                    const userEl = document.createElement('div');
+                    userEl.className = `p-3 rounded-lg flex items-center justify-between border ${isMe ? 'border-orange-500/50 bg-orange-500/10' : 'border-gray-700 bg-gray-750 hover:bg-gray-700 cursor-pointer'} transition-colors`;
+                    
+                    const infoHTML = `
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-full ${isMe ? 'bg-orange-500' : 'bg-green-500'} flex items-center justify-center text-white text-xs">
+                                <i class="fa-solid ${isMe ? 'fa-user' : 'fa-satellite-dish'}"></i>
+                            </div>
+                            <div>
+                                <div class="font-semibold text-sm">${data.name} ${isMe ? '(Jij)' : ''}</div>
+                                <div class="text-xs text-gray-400">Kanaal: ${data.channel}</div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    let actionHTML = '';
+                    if (!isMe) {
+                        userEl.onclick = () => connectToPeer(data.channel);
+                        actionHTML = `<button class="text-green-400 hover:text-green-300 text-sm px-2"><i class="fa-solid fa-phone"></i> Bel</button>`;
+                    }
+                    
+                    userEl.innerHTML = infoHTML + actionHTML;
+                    listDiv.appendChild(userEl);
                 });
+
+                if (count === 1) { // Alleen ik
+                    listDiv.innerHTML += `<div class="text-center text-gray-500 text-sm mt-4 p-4 border border-dashed border-gray-600 rounded-lg">Er is nog niemand anders online. Wacht op anderen...</div>`;
+                }
+            }, (error) => {
+                console.error("Snapshot error:", error);
+            });
         }
 
         // ============ VERBINDEN ============
-        function connectToPeer() {
-            const peerId = document.getElementById('peer-id-input').value;
-            if (!peerId) return alert("Kies eerst een kanaalnummer!");
+        function connectToPeer(peerId) {
+            if (!peerId) return;
+            if (peerId === myId) return showAlert("Je kunt niet met jezelf verbinden.");
+            if (!localStream) return showAlert("Microfoon is nog niet verbonden.");
 
-            if (peerId === myId) {
-                return alert("Je kunt niet met jezelf verbinden. Kies een ander nummer.");
-            }
+            targetId = peerId;
+            targetDisplay.innerText = targetId;
+            updateStatus(`Verbinden met ${peerId}...`);
 
-            if (!localStream) {
-                return alert("Microfoon is nog niet beschikbaar. Wacht even of geef toestemming.");
-            }
+            // Bestaande call sluiten indien nodig
+            if (currentCall) { currentCall.close(); }
 
-            statusDiv.innerText = "Verbinden met " + peerId + "...";
-
-            // Data verbinding
-            conn = peer.connect(peerId);
-            setupDataConnection();
-
-            // Audio verbinding
             const call = peer.call(peerId, localStream);
             currentCall = call;
 
             call.on('stream', (remoteStream) => {
                 playRemoteStream(remoteStream);
-                statusDiv.innerText = "Status: Verbonden! Je kunt nu praten.";
+                updateStatus(`Succesvol verbonden met kanaal ${peerId}.`);
+                updateBadge(true);
                 talkBtn.disabled = false;
             });
 
             call.on('error', (err) => {
-                statusDiv.innerText = "Verbindingsfout: " + err;
+                updateStatus("Fout tijdens verbinden.");
+                resetConnectionUI();
+                showAlert("Kon niet verbinden met dit kanaal. Mogelijk is de gebruiker net offline gegaan.");
+            });
+            
+            call.on('close', () => {
+                resetConnectionUI();
             });
         }
 
-        function setupDataConnection() {
-            if (!conn) return;
-            conn.on('open', () => {
-                statusDiv.innerText = "Status: Verbonden! Je kunt nu praten.";
-                talkBtn.disabled = false;
-            });
+        function resetConnectionUI() {
+            targetId = "";
+            targetDisplay.innerText = "Geen";
+            updateBadge(false);
+            talkBtn.disabled = true;
+            updateStatus("Verbinding verbroken. Kies een ander kanaal.");
         }
 
-        // ============ AUDIO AFSPELEN ============
+        function updateBadge(connected) {
+            if (connected) {
+                badge.innerHTML = `<i class="fa-solid fa-circle-check text-green-400"></i> <span class="text-green-400">Verbonden</span>`;
+                badge.classList.remove('bg-gray-700', 'text-gray-400');
+                badge.classList.add('bg-green-900/40', 'border', 'border-green-800');
+            } else {
+                badge.innerHTML = `<i class="fa-solid fa-circle-xmark"></i> Losgekoppeld`;
+                badge.classList.add('bg-gray-700', 'text-gray-400');
+                badge.classList.remove('bg-green-900/40', 'border', 'border-green-800');
+            }
+        }
+
+        function updateStatus(msg) {
+            statusDiv.innerText = msg;
+        }
+
+        // ============ AUDIO & PTT ============
         function playRemoteStream(remoteStream) {
             let audio = document.getElementById('remote-audio');
             if (!audio) {
@@ -262,9 +451,11 @@
                 document.body.appendChild(audio);
             }
             audio.srcObject = remoteStream;
+            
+            // Fix voor browser autoplay restricties
+            audio.play().catch(e => console.log("Autoplay require interactie:", e));
         }
 
-        // ============ MICROFOON MUTEN ============
         function setMicrophoneMute(isMuted) {
             if (localStream) {
                 localStream.getAudioTracks().forEach(track => {
@@ -273,33 +464,89 @@
             }
         }
 
-        // ============ PUSH-TO-TALK ============
         function startTalking() {
-            if (!talkBtn.disabled) {
+            if (!talkBtn.disabled && !isSpeaking) {
+                isSpeaking = true;
                 setMicrophoneMute(false);
-                talkBtn.innerText = "🔊 JE SPREEKT NU...";
-                talkBtn.style.backgroundColor = "#4caf50";
+                talkBtn.classList.add('ptt-active');
+                talkBtn.innerHTML = `
+                    <i class="fa-solid fa-microphone-lines text-4xl mb-1 animate-pulse"></i>
+                    <span class="uppercase tracking-wide text-sm font-bold">Zenden...</span>
+                `;
             }
         }
 
         function stopTalking() {
-            setMicrophoneMute(true);
-            talkBtn.innerText = "Houd ingedrukt om te praten";
-            talkBtn.style.backgroundColor = "#ff5722";
+            if (isSpeaking) {
+                isSpeaking = false;
+                setMicrophoneMute(true);
+                talkBtn.classList.remove('ptt-active');
+                talkBtn.innerHTML = `
+                    <i class="fa-solid fa-microphone text-4xl mb-1"></i>
+                    <span class="uppercase tracking-wide text-sm">Push to Talk</span>
+                `;
+            }
         }
 
+        // PTT Event Listeners
         talkBtn.addEventListener('mousedown', startTalking);
         talkBtn.addEventListener('mouseup', stopTalking);
         talkBtn.addEventListener('mouseleave', stopTalking);
+        talkBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startTalking(); }, {passive: false});
+        talkBtn.addEventListener('touchend', (e) => { e.preventDefault(); stopTalking(); }, {passive: false});
 
-        talkBtn.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-            startTalking();
+        // ============ UITLOGGEN / RESET ============
+        async function logout() {
+            // Verwijder uit Firebase
+            if (window.userAuth && myId) {
+                try {
+                    const docRef = window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'activeUsers', myId);
+                    await window.deleteDoc(docRef);
+                } catch(e) {
+                    console.error("Fout bij afmelden database:", e);
+                }
+            }
+
+            // Stop realtime listeners
+            if (window.unsubscribeSnapshot) window.unsubscribeSnapshot();
+
+            // Sluit Peer connecties
+            if (currentCall) currentCall.close();
+            if (peer) {
+                peer.destroy();
+                peer = null;
+            }
+
+            // Stop microfoon om resource leakage te voorkomen
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+
+            // Reset UI State
+            resetConnectionUI();
+            document.getElementById('my-name').innerText = "-";
+            document.getElementById('my-id').innerText = "-";
+            document.getElementById('login-btn').disabled = false;
+            
+            // Switch schermen
+            document.getElementById('main-screen').classList.add('hidden');
+            document.getElementById('login-screen').classList.remove('hidden');
+            
+            myId = "";
+            myName = "";
+        }
+
+        // Probeer gebruiker uit Firebase te verwijderen als ze het venster sluiten
+        window.addEventListener('beforeunload', () => {
+            if (myId && window.userAuth) {
+                // navigator.sendBeacon is niet betrouwbaar genoeg voor firestore set/delete,
+                // we roepen deleteDoc synchroon-achtig aan (best-effort)
+                const docRef = window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'activeUsers', myId);
+                window.deleteDoc(docRef);
+            }
         });
-        talkBtn.addEventListener('touchend', (e) => {
-            e.preventDefault();
-            stopTalking();
-        });
+
     </script>
 </body>
 </html>
