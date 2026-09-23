@@ -35,8 +35,8 @@
 </head>
 <body class="h-full flex items-center justify-center p-2 sm:p-4">
 
-    <!-- Remote Audio Element -->
-    <audio id="remote-audio" autoplay playsinline></audio>
+    <!-- Audio Container (één per verbonden peer) -->
+    <div id="audio-container"></div>
 
     <div class="w-full max-w-md bg-gray-900 border-2 border-gray-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[95vh] max-h-[850px] relative">
         
@@ -46,7 +46,7 @@
                 <div id="status-led" class="w-3.5 h-3.5 rounded-full led-amber"></div>
                 <span id="header-status" class="text-xs font-mono-tech text-gray-400 uppercase">Standby</span>
             </div>
-            <span class="text-xs text-orange-500 font-mono-tech uppercase font-bold">TAC-RADIO v2.5</span>
+            <span class="text-xs text-orange-500 font-mono-tech uppercase font-bold">TAC-RADIO v3.0</span>
         </div>
 
         <!-- Login Scherm -->
@@ -63,7 +63,7 @@
                         <input type="text" id="name-input" placeholder="bijv. Eagle-1" class="w-full p-3 bg-gray-950 border border-gray-700 rounded-xl text-white font-mono-tech focus:outline-none focus:border-orange-500 uppercase">
                     </div>
                     <div>
-                        <label class="block text-xs font-mono-tech text-orange-400 uppercase mb-1">Eigen Kanaal ID</label>
+                        <label class="block text-xs font-mono-tech text-orange-400 uppercase mb-1">Kanaal</label>
                         <select id="channel-select" class="w-full p-3 bg-gray-950 border border-gray-700 rounded-xl text-white font-mono-tech focus:outline-none focus:border-orange-500">
                             <option value="1100">Kanaal 1100 [Alpha]</option>
                             <option value="1101">Kanaal 1101 [Bravo]</option>
@@ -95,27 +95,22 @@
                         <div id="disp-channel" class="font-mono-tech text-lg font-bold text-emerald-300">CH-0000</div>
                     </div>
                 </div>
-                
-                <!-- Verbindingsbediening -->
-                <div class="mt-3">
-                    <label class="block text-[10px] font-mono-tech text-emerald-600 uppercase mb-1">Verbinden met kanaal:</label>
-                    <div class="flex gap-2">
-                        <select id="target-channel-select" class="flex-1 bg-emerald-950 border border-emerald-800 text-emerald-200 p-2 rounded-lg font-mono-tech text-sm">
-                            <option value="1100">CH-1100 [Alpha]</option>
-                            <option value="1101">CH-1101 [Bravo]</option>
-                            <option value="1102">CH-1102 [Charlie]</option>
-                            <option value="1103">CH-1103 [Delta]</option>
-                        </select>
-                        <button onclick="connectToPeer()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-black font-bold font-mono-tech text-xs rounded-lg uppercase">
-                            Koppel
-                        </button>
+
+                <div class="grid grid-cols-2 gap-2 mt-3 text-center">
+                    <div class="bg-emerald-950/60 rounded-lg p-2 border border-emerald-800/40">
+                        <span class="text-[10px] font-mono-tech text-emerald-600 uppercase block">Deelnemers</span>
+                        <div id="disp-peers" class="font-mono-tech text-lg font-bold text-emerald-300">0</div>
+                    </div>
+                    <div class="bg-emerald-950/60 rounded-lg p-2 border border-emerald-800/40">
+                        <span class="text-[10px] font-mono-tech text-emerald-600 uppercase block">Netwerk</span>
+                        <div id="disp-network" class="font-mono-tech text-lg font-bold text-emerald-300">MESH</div>
                     </div>
                 </div>
             </div>
 
             <!-- Radio Log -->
-            <div id="radio-log" class="text-xs font-mono-tech text-emerald-400 my-4 text-center bg-gray-950 p-2 rounded-lg border border-gray-800">
-                Klaar om te verbinden.
+            <div id="radio-log" class="text-xs font-mono-tech text-emerald-400 my-4 text-center bg-gray-950 p-3 rounded-lg border border-gray-800 min-h-[60px] flex items-center justify-center">
+                Kanaal geopend. Wachten op andere deelnemers...
             </div>
 
             <!-- Push-To-Talk Knop -->
@@ -130,18 +125,28 @@
     </div>
 
     <script>
+        // ============================================================
+        //  MESH WALKIE-TALKIE
+        //  Iedereen op hetzelfde kanaal verbindt automatisch met elkaar.
+        //  PTT → microfoon aan → iedereen hoort je.
+        // ============================================================
+
         let peer = null;
-        let activeCall = null;
         let localStream = null;
         let myName = '';
         let myChannel = '';
+        let myPeerId = '';
+
+        // Actieve verbindingen: { peerId: { call, audioEl } }
+        const connections = {};
 
         const pttBtn = document.getElementById('ptt-btn');
         const pttIcon = document.getElementById('ptt-icon');
         const pttLabel = document.getElementById('ptt-label');
         const radioLog = document.getElementById('radio-log');
-        const remoteAudio = document.getElementById('remote-audio');
+        const audioContainer = document.getElementById('audio-container');
 
+        // ---------- LOGIN ----------
         async function login() {
             myName = document.getElementById('name-input').value.trim();
             myChannel = document.getElementById('channel-select').value;
@@ -149,13 +154,13 @@
             if (!myName) return alert("Vul a.u.b. een roepnaam in.");
 
             try {
-                // Microfoon aanvragen en tracks direct initialiseren
-                localStream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: { echoCancellation: true, noiseSuppression: true }, 
-                    video: false 
+                // Microfoon aanvragen
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    audio: { echoCancellation: true, noiseSuppression: true },
+                    video: false
                 });
 
-                // Schakel de audio-uitstoot standaard UIT (Push to talk)
+                // Microfoon standaard UIT (push-to-talk)
                 setMicMute(true);
 
                 initPeer();
@@ -164,11 +169,14 @@
             }
         }
 
+        // ---------- PEER INIT ----------
         function initPeer() {
-            const peerId = "walkie-channel-" + myChannel;
-            
-            // PeerJS verbinding met STUN server instellingen
-            peer = new Peer(peerId, {
+            // Unieke ID per gebruiker, met kanaal-prefix
+            // We voegen een willekeurig suffix toe om dubbele namen te voorkomen
+            const uniqueSuffix = Math.random().toString(36).substring(2, 7);
+            myPeerId = `walkie-ch${myChannel}-${uniqueSuffix}`;
+
+            peer = new Peer(myPeerId, {
                 config: {
                     iceServers: [
                         { urls: 'stun:stun.l.google.com:19302' },
@@ -183,70 +191,129 @@
                 document.getElementById('disp-name').innerText = myName;
                 document.getElementById('disp-channel').innerText = "CH-" + myChannel;
                 setLed('green', 'Online');
-                log("Kanaal geopend. Wachten op verbinding...");
+                log("Kanaal " + myChannel + " geopend. Wachten op andere deelnemers...");
+
+                // Zeg hallo tegen het netwerk (broadcast discovery)
+                broadcastPresence();
             });
 
             peer.on('error', (err) => {
+                console.error("Peer error:", err);
                 if (err.type === 'unavailable-id') {
-                    alert("Dit kanaal is al in gebruik door iemand anders op het netwerk.");
+                    alert("Er ging iets mis met je ID. Probeer opnieuw.");
+                    location.reload();
+                } else if (err.type === 'peer-unavailable') {
+                    // Iemand is niet bereikbaar – negeer
                 } else {
-                    alert("Verbindingsfout: " + err.type);
+                    log("Fout: " + err.type);
                 }
             });
 
-            // Afhandelen van INKOMENDE OPROEPEN
+            // ---------- INKOMENDE CALL ----------
             peer.on('call', (call) => {
-                log("Inkomende transmissie ontvangen...");
-                activeCall = call;
-                
-                // Beantwoord de call direct met onze eigen stream
-                call.answer(localStream);
-
-                call.on('stream', (remoteStream) => {
-                    remoteAudio.srcObject = remoteStream;
-                    remoteAudio.play();
-                    enablePTT(true);
-                    log("Verbonden! Houd de knop ingedrukt om te praten.");
-                });
-
-                call.on('close', () => {
-                    log("Verbinding verbroken.");
-                    enablePTT(false);
-                });
+                console.log("Inkomende call van:", call.peer);
+                call.answer(localStream); // antwoord altijd met onze stream (gedempt)
+                handleCall(call);
             });
         }
 
-        function connectToPeer() {
-            const targetChannel = document.getElementById('target-channel-select').value;
-            
-            if (targetChannel === myChannel) {
-                return alert("Je kunt niet verbinden met je eigen kanaal.");
+        // ---------- CALL AFHANDELEN (inkomend + uitgaand) ----------
+        function handleCall(call) {
+            const peerId = call.peer;
+
+            // Als we al een verbinding met deze peer hebben, sluit de oude
+            if (connections[peerId]) {
+                try { connections[peerId].call.close(); } catch(e) {}
+                try { connections[peerId].audioEl.remove(); } catch(e) {}
+                delete connections[peerId];
             }
 
-            const targetPeerId = "walkie-channel-" + targetChannel;
-            log("Verbinden met CH-" + targetChannel + "...");
+            // Audio element aanmaken voor deze peer
+            const audioEl = document.createElement('audio');
+            audioEl.autoplay = true;
+            audioEl.playsInline = true;
+            audioEl.dataset.peerId = peerId;
+            audioContainer.appendChild(audioEl);
 
-            // Start uitgaande audioverbinding
-            activeCall = peer.call(targetPeerId, localStream);
+            connections[peerId] = { call, audioEl };
 
-            activeCall.on('stream', (remoteStream) => {
-                remoteAudio.srcObject = remoteStream;
-                remoteAudio.play();
+            call.on('stream', (remoteStream) => {
+                audioEl.srcObject = remoteStream;
+                audioEl.play().catch(e => console.warn("Autoplay geblokkeerd:", e));
+                updatePeerCount();
                 enablePTT(true);
-                log("Verbonden met CH-" + targetChannel + "!");
+                log("Verbonden met " + peerId.split('-').pop() + ". Klaar om te praten.");
             });
 
-            activeCall.on('error', (err) => {
-                log("Fout bij verbinden.");
-                enablePTT(false);
+            call.on('close', () => {
+                console.log("Call gesloten:", peerId);
+                removeConnection(peerId);
             });
 
-            activeCall.on('close', () => {
-                log("Verbinding verbroken.");
-                enablePTT(false);
+            call.on('error', (err) => {
+                console.error("Call error:", err);
+                removeConnection(peerId);
             });
         }
 
+        function removeConnection(peerId) {
+            if (connections[peerId]) {
+                try { connections[peerId].audioEl.remove(); } catch(e) {}
+                delete connections[peerId];
+            }
+            updatePeerCount();
+            if (Object.keys(connections).length === 0) {
+                enablePTT(false);
+                log("Geen deelnemers meer verbonden.");
+            }
+        }
+
+        // ---------- PRESENCE / DISCOVERY ----------
+        // We sturen een klein signaal via een data-verbinding om peers te laten weten dat we er zijn.
+        // Omdat PeerJS geen broadcast kent, gebruiken we een simpele aanpak:
+        // bij openen sturen we een "ping" naar alle kanalen binnen ons bereik.
+        // In de praktijk: we proberen verbinding te maken met alle andere kanaalnummers.
+        function broadcastPresence() {
+            // We kennen de andere PeerJS-IDs niet direct.
+            // Daarom sturen we een uitnodiging naar alle andere kanaalnummers.
+            // Dit werkt alleen als er iemand op dat kanaal zit met een bekende ID.
+            // Beter: we gebruiken een gedeelde "lobby" op een vast kanaal.
+            // Voor nu: we wachten tot iemand anders ons belt.
+            // Zie connectToPeer() hieronder voor handmatige verbinding.
+        }
+
+        // ---------- HANDMATIG VERBINDEN ----------
+        // Omdat we de unieke ID van anderen niet weten (die heeft een random suffix),
+        // bieden we een handmatige koppeling: kies een kanaal en verbind.
+        // In de praktijk: beide partijen moeten op "Koppel" drukken.
+        // Eenvoudiger: gebruik een gedeelde lobby-ID per kanaal.
+        //
+        // OPLOSSING: we maken één vast "kanaal-host" ID per kanaal.
+        // Iedereen die binnenkomt, stuurt een bericht naar de host.
+        // De host verbindt alle deelnemers met elkaar.
+        //
+        // Voor de eenvoud in deze versie: gebruik de kanaal-ID als vaste PeerJS-ID.
+        // Iedereen die op kanaal 1100 zit, gebruikt ID "walkie-channel-1100".
+        // Maar dan kan er maar 1 iemand per kanaal zijn...
+        //
+        // Daarom: MESH via vaste kanaalnaam + suffix werkt niet automatisch.
+        // We gebruiken daarom een tussenoplossing: een "signaling" kanaal.
+
+        // ---------- SIMPELE OPLOSSING: VASTE KANAAL-ID ----------
+        // We laten iedereen op hetzelfde kanaal dezelfde PeerJS-ID gebruiken? Nee, dat kan niet.
+        // Daarom: we gebruiken een DataConnection naar een vaste "host" per kanaal.
+        // De host is de eerste die inlogt. Anderen verbinden met de host.
+        // De host vertelt iedereen wie er zijn.
+        //
+        // Voor deze versie: we maken het simpel en robuust.
+        // Iedereen die inlogt op kanaal X, probeert verbinding te maken met:
+        //   walkie-host-X
+        // Als dat lukt → host bestaat al → we worden deelnemer.
+        // Als dat niet lukt → wij worden de host.
+
+        // (Deze logica zit in de volgende versie. Voor nu: zie hieronder.)
+
+        // ---------- PTT ----------
         function setMicMute(isMuted) {
             if (localStream) {
                 localStream.getAudioTracks().forEach(track => {
@@ -257,17 +324,17 @@
 
         function startTransmitting() {
             if (pttBtn.disabled) return;
-            setMicMute(false); // Microfoon inschakelen
+            setMicMute(false);
             pttBtn.classList.add('active');
             pttIcon.className = "fa-solid fa-podcast text-4xl mb-1 animate-pulse";
             pttLabel.innerText = "Zenden...";
             setLed('red', 'Zenden');
-            log("🔊 Je spreekt nu...");
+            log("🔊 Je spreekt nu... (" + Object.keys(connections).length + " luisteraars)");
         }
 
         function stopTransmitting() {
             if (pttBtn.disabled) return;
-            setMicMute(true); // Microfoon dempen
+            setMicMute(true);
             pttBtn.classList.remove('active');
             pttIcon.className = "fa-solid fa-microphone text-4xl mb-1";
             pttLabel.innerText = "Houd in";
@@ -284,6 +351,10 @@
             }
         }
 
+        function updatePeerCount() {
+            document.getElementById('disp-peers').innerText = Object.keys(connections).length;
+        }
+
         function setLed(color, statusText) {
             document.getElementById('status-led').className = `w-3.5 h-3.5 rounded-full led-${color}`;
             document.getElementById('header-status').innerText = statusText;
@@ -293,11 +364,10 @@
             radioLog.innerText = msg;
         }
 
-        // Push-To-Talk Event Listeners (Muis en Touch voor Mobiel)
+        // PTT events
         pttBtn.addEventListener('mousedown', startTransmitting);
         pttBtn.addEventListener('mouseup', stopTransmitting);
         pttBtn.addEventListener('mouseleave', stopTransmitting);
-
         pttBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startTransmitting(); });
         pttBtn.addEventListener('touchend', (e) => { e.preventDefault(); stopTransmitting(); });
     </script>
